@@ -1,21 +1,21 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-8" />
   <title>乐队排练投票</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: Arial, sans-serif; margin: 16px; max-width:800px; }
+    body { font-family: Arial, sans-serif; margin: 16px; max-width: 800px; }
     h1 { margin-bottom: 6px; }
     .song-list { margin-bottom: 12px; }
-    .song-list label { display: block; margin: 6px 0; }
+    .song-list label { display: block; margin: 6px 0; cursor: pointer; }
     button { padding: 10px 16px; font-size: 16px; cursor: pointer; }
     table { border-collapse: collapse; width: 100%; margin-top: 16px; }
     th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
     th { background: #f7f7f7; }
     tr.highlight { background: #d8f5d0; font-weight: 600; }
-    .controls { display:flex; gap:8px; align-items:center; margin-top:8px; }
-    .small { font-size: 13px; color:#666; }
+    .controls { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+    .small { font-size: 13px; color: #666; }
     #usernameInput {
       font-size: 16px;
       padding: 6px 8px;
@@ -31,7 +31,6 @@
   <h1>选择下一首排练歌曲</h1>
   <p class="small">多选可选任意多首。投票提交后会记录你本人的选择，每个人只计一次票数。页面会自动刷新结果。</p>
 
-  <!-- 新增用户名输入 -->
   <div class="controls" style="margin-bottom:12px; align-items:center;">
     <label for="usernameInput">用户名:</label>
     <input type="text" id="usernameInput" placeholder="请输入你的名字" autocomplete="off" />
@@ -49,146 +48,147 @@
   <h2>实时结果（按票数排序，前 5 名已高亮）</h2>
   <div id="results">载入中...</div>
 
-<script>
-const apiBase = "https://script.google.com/macros/s/AKfycbxfAvJ1Nl7Sbc-oteJf3muywRndEiKxc6tqSJ1fi247vbuwwVSQl1VTZWn32XfBp4z0jQ/exec"; // ← **请替换为你的 Apps Script Web 应用 URL**
+  <script>
+    const apiBase = "https://script.google.com/macros/s/AKfycbzxd70IIh0B84CYwOwYQ0-Z_e3MDWGoZ0rGkpF5bPnqSckAvWKIAFbUobWfeFMp4__J4g/exec"; // 改成你部署的 Apps Script URL
 
-let latestData = [];
-let selectedSongs = [];
+    let selectedSongs = [];
 
-// 保存勾选状态
-function saveSelections() {
-  selectedSongs = Array.from(document.querySelectorAll('#songs input:checked')).map(i => i.value);
-  localStorage.setItem('selectedSongs', JSON.stringify(selectedSongs));
-}
-
-// 恢复勾选状态
-function restoreSelections() {
-  const saved = JSON.parse(localStorage.getItem('selectedSongs') || '[]');
-  saved.forEach(value => {
-    const checkbox = document.querySelector(`#songs input[value="${CSS.escape(value)}"]`);
-    if (checkbox) checkbox.checked = true;
-  });
-  selectedSongs = saved;
-}
-
-// 加载歌曲并渲染
-async function loadSongs() {
-  try {
-    const res = await fetch(apiBase + '?t=' + Date.now());
-    const data = await res.json();
-    latestData = data;
-    renderSongList(data);
-    renderResults(data);
-    document.getElementById('lastUpdated').innerText = '最后更新：' + new Date().toLocaleString();
-  } catch (err) {
-    console.error(err);
-    document.getElementById('songs').innerText = '无法加载数据，请检查 Apps Script URL 是否正确或是否已部署。';
-    document.getElementById('results').innerText = '';
-  }
-}
-
-function renderSongList(data) {
-  const container = document.getElementById('songs');
-  container.innerHTML = '';
-  for (let i = 1; i < data.length; i++) {
-    const song = data[i][0];
-    const id = 'song_' + i;
-    const el = document.createElement('label');
-    el.innerHTML = `<input id="${id}" type="checkbox" value="${escapeHtml(song)}"> ${escapeHtml(song)}`;
-    container.appendChild(el);
-  }
-  restoreSelections();
-
-  // 绑定保存勾选事件
-  document.querySelectorAll('#songs input[type=checkbox]').forEach(cb => {
-    cb.addEventListener('change', saveSelections);
-  });
-}
-
-function renderResults(data) {
-  let songsData = data.slice(1).map(r => [r[0], Number(r[1] || 0)]);
-  songsData.sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  let html = '<table><tr><th>排名</th><th>歌曲</th><th>票数</th></tr>';
-  for (let i = 0; i < songsData.length; i++) {
-    const row = songsData[i];
-    const rank = i + 1;
-    const cls = i < 5 ? ' class="highlight"' : '';
-    html += `<tr${cls}><td>${rank}</td><td>${escapeHtml(row[0])}</td><td>${row[1]}</td></tr>`;
-  }
-  html += '</table>';
-  document.getElementById('results').innerHTML = html;
-}
-
-// 新的提交投票函数，带用户名，发送所有选中歌曲一次 POST
-async function submitVote() {
-  const user = document.getElementById('usernameInput').value.trim();
-  if (!user) {
-    alert('请输入用户名');
-    return;
-  }
-
-  const checked = Array.from(document.querySelectorAll('#songs input:checked')).map(i => i.value);
-  if (checked.length === 0) {
-    alert('请至少选择一首歌曲再提交');
-    return;
-  }
-
-  const btn = document.getElementById('submitBtn');
-  btn.disabled = true;
-  btn.innerText = '提交中...';
-
-  try {
-    // 发送 JSON 格式数据，user + songs 数组
-    const res = await fetch(apiBase, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user, songs: checked })
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || '提交失败');
+    // HTML 转义
+    function escapeHtml(text) {
+      if (!text && text !== 0) return '';
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
     }
-    alert('投票成功！');
-    saveSelections();
-    await loadSongs();
-  } catch (err) {
-    alert('提交失败: ' + err.message);
-    console.error(err);
-  } finally {
-    btn.disabled = false;
-    btn.innerText = '提交投票';
-  }
-}
 
-function selectAll() {
-  document.querySelectorAll('#songs input').forEach(i => i.checked = true);
-  saveSelections();
-}
-function clearAll() {
-  document.querySelectorAll('#songs input').forEach(i => i.checked = false);
-  saveSelections();
-}
+    // 保存勾选到 localStorage
+    function saveSelections() {
+      selectedSongs = Array.from(document.querySelectorAll('#songs input:checked')).map(i => i.value);
+      localStorage.setItem('selectedSongs', JSON.stringify(selectedSongs));
+    }
 
-// HTML escape
-function escapeHtml(text) {
-  if (!text && text !== 0) return '';
-  return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
+    // 恢复勾选
+    function restoreSelections() {
+      const saved = JSON.parse(localStorage.getItem('selectedSongs') || '[]');
+      saved.forEach(value => {
+        const checkbox = document.querySelector(`#songs input[value="${CSS.escape(value)}"]`);
+        if (checkbox) checkbox.checked = true;
+      });
+      selectedSongs = saved;
+    }
 
-// 事件绑定
-document.getElementById('submitBtn').addEventListener('click', submitVote);
-document.getElementById('selectAllBtn').addEventListener('click', selectAll);
-document.getElementById('clearBtn').addEventListener('click', clearAll);
+    // 渲染歌曲列表
+    function renderSongList(data) {
+      const container = document.getElementById('songs');
+      container.innerHTML = '';
+      for (let i = 1; i < data.length; i++) {
+        const song = data[i][0];
+        const id = 'song_' + i;
+        const label = document.createElement('label');
+        label.innerHTML = `<input id="${id}" type="checkbox" value="${escapeHtml(song)}"> ${escapeHtml(song)}`;
+        container.appendChild(label);
+      }
+      restoreSelections();
 
-// 自动刷新
-loadSongs();
-//setInterval(loadSongs, 10000);
+      document.querySelectorAll('#songs input[type=checkbox]').forEach(cb => {
+        cb.addEventListener('change', saveSelections);
+      });
+    }
 
-</script>
+    // 渲染票数结果
+    function renderResults(data) {
+      let songsData = data.slice(1).map(r => [r[0], Number(r[1] || 0)]);
+      songsData.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      let html = '<table><tr><th>排名</th><th>歌曲</th><th>票数</th></tr>';
+      for (let i = 0; i < songsData.length; i++) {
+        const row = songsData[i];
+        const rank = i + 1;
+        const cls = i < 5 ? ' class="highlight"' : '';
+        html += `<tr${cls}><td>${rank}</td><td>${escapeHtml(row[0])}</td><td>${row[1]}</td></tr>`;
+      }
+      html += '</table>';
+      document.getElementById('results').innerHTML = html;
+    }
+
+    // 加载歌曲和票数数据
+    async function loadSongs() {
+      try {
+        const res = await fetch(apiBase + '?t=' + Date.now());
+        if (!res.ok) throw new Error('加载失败');
+        const data = await res.json();
+        renderSongList(data);
+        renderResults(data);
+        document.getElementById('lastUpdated').innerText = '最后更新：' + new Date().toLocaleString();
+      } catch (e) {
+        console.error(e);
+        document.getElementById('songs').innerText = '无法加载数据，请检查 Apps Script URL 是否正确或是否已部署。';
+        document.getElementById('results').innerText = '';
+      }
+    }
+
+    // 提交投票（用户名 + 选中的歌曲）
+    async function submitVote() {
+      const user = document.getElementById('usernameInput').value.trim();
+      if (!user) {
+        alert('请输入用户名');
+        return;
+      }
+      const checked = Array.from(document.querySelectorAll('#songs input:checked')).map(i => i.value);
+      if (checked.length === 0) {
+        alert('请至少选择一首歌曲再提交');
+        return;
+      }
+
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      btn.innerText = '提交中...';
+
+      try {
+        const res = await fetch(apiBase, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user, songs: checked })
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || '提交失败');
+        }
+        const json = await res.json();
+        if (json.error) throw new Error(json.error);
+        alert('投票成功！');
+        saveSelections();
+        await loadSongs();
+      } catch (err) {
+        alert('提交失败: ' + err.message);
+        console.error(err);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '提交投票';
+      }
+    }
+
+    // 全选和清除
+    function selectAll() {
+      document.querySelectorAll('#songs input').forEach(i => i.checked = true);
+      saveSelections();
+    }
+    function clearAll() {
+      document.querySelectorAll('#songs input').forEach(i => i.checked = false);
+      saveSelections();
+    }
+
+    // 事件绑定
+    document.getElementById('submitBtn').addEventListener('click', submitVote);
+    document.getElementById('selectAllBtn').addEventListener('click', selectAll);
+    document.getElementById('clearBtn').addEventListener('click', clearAll);
+
+    // 页面加载时拉取数据
+    loadSongs();
+    // 每10秒刷新
+    //setInterval(loadSongs, 10000);
+  </script>
 </body>
 </html>
