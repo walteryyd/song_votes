@@ -49,11 +49,9 @@
   <div id="results">载入中...</div>
 
   <script>
-    const apiBase = "https://script.google.com/macros/s/AKfycbz6q7lUShqMd45fSzF-KiWp0BzsDwfqtkT4XVflLTpQwzX0IQsXtcYzJKEn4khR2RnkNg/exec"; // 改成你部署的 Apps Script URL
+    const apiBase = "https://script.google.com/macros/s/AKfycbz3WBJlGv1jCTnps9mky0tTNAxYQ59Xo2RXnhZAn-ekxpq3HeqUneI-YdJS5pFi3lG_ZQ/exec"; // 换成你的 Apps Script 部署 URL
 
-    let selectedSongs = [];
-
-    // HTML 转义
+    // HTML转义
     function escapeHtml(text) {
       if (!text && text !== 0) return '';
       return String(text)
@@ -64,20 +62,19 @@
         .replace(/'/g, "&#039;");
     }
 
-    // 保存勾选到 localStorage
+    // 保存勾选状态到 localStorage
     function saveSelections() {
-      selectedSongs = Array.from(document.querySelectorAll('#songs input:checked')).map(i => i.value);
+      const selectedSongs = Array.from(document.querySelectorAll('#songs input:checked')).map(i => i.value);
       localStorage.setItem('selectedSongs', JSON.stringify(selectedSongs));
     }
 
-    // 恢复勾选
+    // 恢复勾选状态
     function restoreSelections() {
       const saved = JSON.parse(localStorage.getItem('selectedSongs') || '[]');
       saved.forEach(value => {
         const checkbox = document.querySelector(`#songs input[value="${CSS.escape(value)}"]`);
         if (checkbox) checkbox.checked = true;
       });
-      selectedSongs = saved;
     }
 
     // 渲染歌曲列表
@@ -92,13 +89,12 @@
         container.appendChild(label);
       }
       restoreSelections();
-
       document.querySelectorAll('#songs input[type=checkbox]').forEach(cb => {
         cb.addEventListener('change', saveSelections);
       });
     }
 
-    // 渲染票数结果
+    // 渲染投票结果
     function renderResults(data) {
       let songsData = data.slice(1).map(r => [r[0], Number(r[1] || 0)]);
       songsData.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
@@ -113,23 +109,30 @@
       document.getElementById('results').innerHTML = html;
     }
 
-    // 加载歌曲和票数数据
-    async function loadSongs() {
-      try {
-        const res = await fetch(apiBase + '?t=' + Date.now());
-        if (!res.ok) throw new Error('加载失败');
-        const data = await res.json();
-        renderSongList(data);
-        renderResults(data);
-        document.getElementById('lastUpdated').innerText = '最后更新：' + new Date().toLocaleString();
-      } catch (e) {
-        console.error(e);
-        document.getElementById('songs').innerText = '无法加载数据，请检查 Apps Script URL 是否正确或是否已部署。';
-        document.getElementById('results').innerText = '';
-      }
+    // 用 JSONP 加载数据
+    function loadSongs() {
+      const script = document.createElement('script');
+      script.src = apiBase + '?callback=handleData&t=' + Date.now();
+      document.body.appendChild(script);
+      // 为避免多次插入，加载完后自动移除脚本标签
+      script.onload = () => {
+        script.remove();
+      };
     }
 
-    // 提交投票（用户名 + 选中的歌曲）
+    // JSONP 回调
+    function handleData(data) {
+      if(data.error){
+        document.getElementById('songs').innerText = '错误：' + data.error;
+        document.getElementById('results').innerText = '';
+        return;
+      }
+      renderSongList(data);
+      renderResults(data);
+      document.getElementById('lastUpdated').innerText = '最后更新：' + new Date().toLocaleString();
+    }
+
+    // 提交投票，使用 application/x-www-form-urlencoded POST
     async function submitVote() {
       const user = document.getElementById('usernameInput').value.trim();
       if (!user) {
@@ -147,20 +150,20 @@
       btn.innerText = '提交中...';
 
       try {
+        const body = new URLSearchParams();
+        body.append('user', user);
+        body.append('songs', JSON.stringify(checked));
+
         const res = await fetch(apiBase, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user, songs: checked })
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body.toString()
         });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || '提交失败');
-        }
-        const json = await res.json();
-        if (json.error) throw new Error(json.error);
+        if (!res.ok) throw new Error('提交失败');
+        const text = await res.text();
         alert('投票成功！');
         saveSelections();
-        await loadSongs();
+        loadSongs();
       } catch (err) {
         alert('提交失败: ' + err.message);
         console.error(err);
@@ -170,7 +173,7 @@
       }
     }
 
-    // 全选和清除
+    // 全选、清除
     function selectAll() {
       document.querySelectorAll('#songs input').forEach(i => i.checked = true);
       saveSelections();
@@ -180,14 +183,13 @@
       saveSelections();
     }
 
-    // 事件绑定
     document.getElementById('submitBtn').addEventListener('click', submitVote);
     document.getElementById('selectAllBtn').addEventListener('click', selectAll);
     document.getElementById('clearBtn').addEventListener('click', clearAll);
 
-    // 页面加载时拉取数据
+    // 首次加载
     loadSongs();
-    // 每10秒刷新
+    // 10秒刷新一次
     //setInterval(loadSongs, 10000);
   </script>
 </body>
