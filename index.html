@@ -16,33 +16,65 @@
     tr.highlight { background: #d8f5d0; font-weight: 600; }
     .controls { display:flex; gap:8px; align-items:center; margin-top:8px; }
     .small { font-size: 13px; color:#666; }
+    #usernameInput {
+      font-size: 16px;
+      padding: 6px 8px;
+      width: 200px;
+    }
+    label[for="usernameInput"] {
+      font-weight: bold;
+      margin-right: 8px;
+    }
   </style>
 </head>
 <body>
   <h1>选择下一首排练歌曲</h1>
-  <p class="small">多选可选任意多首。投票提交后会把每首所选歌曲的票数各 +1。页面会自动刷新结果。</p>
- 
+  <p class="small">多选可选任意多首。投票提交后会记录你本人的选择，每个人只计一次票数。页面会自动刷新结果。</p>
+
+  <!-- 新增用户名输入 -->
+  <div class="controls" style="margin-bottom:12px; align-items:center;">
+    <label for="usernameInput">用户名:</label>
+    <input type="text" id="usernameInput" placeholder="请输入你的名字" autocomplete="off" />
+  </div>
+
   <div class="song-list" id="songs">载入中...</div>
- 
+
   <div class="controls">
     <button id="submitBtn">提交投票</button>
     <button id="selectAllBtn">全选</button>
     <button id="clearBtn">清除选择</button>
     <div style="margin-left:auto"><span id="lastUpdated" class="small"></span></div>
   </div>
- 
+
   <h2>实时结果（按票数排序，前 5 名已高亮）</h2>
   <div id="results">载入中...</div>
- 
+
 <script>
-const apiBase = "https://script.google.com/macros/s/AKfycbxuWN7Ei0CYx2NmlfSF-tif104JTVrC3-DFDellPoVSaJEd2U8CmKGMQCUfEgLX_HhUnA/exec"; // ← **把这里替换成你的 Web 应用 URL**，比如 https://script.google.com/macros/s/xxxxx/exec
- 
-// 基本功能：加载歌曲、提交投票、显示结果
+const apiBase = "https://script.google.com/macros/s/AKfycbxfAvJ1Nl7Sbc-oteJf3muywRndEiKxc6tqSJ1fi247vbuwwVSQl1VTZWn32XfBp4z0jQ/exec"; // ← **请替换为你的 Apps Script Web 应用 URL**
+
 let latestData = [];
- 
+let selectedSongs = [];
+
+// 保存勾选状态
+function saveSelections() {
+  selectedSongs = Array.from(document.querySelectorAll('#songs input:checked')).map(i => i.value);
+  localStorage.setItem('selectedSongs', JSON.stringify(selectedSongs));
+}
+
+// 恢复勾选状态
+function restoreSelections() {
+  const saved = JSON.parse(localStorage.getItem('selectedSongs') || '[]');
+  saved.forEach(value => {
+    const checkbox = document.querySelector(`#songs input[value="${CSS.escape(value)}"]`);
+    if (checkbox) checkbox.checked = true;
+  });
+  selectedSongs = saved;
+}
+
+// 加载歌曲并渲染
 async function loadSongs() {
   try {
-    const res = await fetch(apiBase);
+    const res = await fetch(apiBase + '?t=' + Date.now());
     const data = await res.json();
     latestData = data;
     renderSongList(data);
@@ -54,11 +86,10 @@ async function loadSongs() {
     document.getElementById('results').innerText = '';
   }
 }
- 
+
 function renderSongList(data) {
   const container = document.getElementById('songs');
   container.innerHTML = '';
-  // data 是二维数组，data[0] 为标题行
   for (let i = 1; i < data.length; i++) {
     const song = data[i][0];
     const id = 'song_' + i;
@@ -66,8 +97,14 @@ function renderSongList(data) {
     el.innerHTML = `<input id="${id}" type="checkbox" value="${escapeHtml(song)}"> ${escapeHtml(song)}`;
     container.appendChild(el);
   }
+  restoreSelections();
+
+  // 绑定保存勾选事件
+  document.querySelectorAll('#songs input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', saveSelections);
+  });
 }
- 
+
 function renderResults(data) {
   let songsData = data.slice(1).map(r => [r[0], Number(r[1] || 0)]);
   songsData.sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]));
@@ -81,45 +118,57 @@ function renderResults(data) {
   html += '</table>';
   document.getElementById('results').innerHTML = html;
 }
- 
-// 处理提交：对每首选中的歌发送一次 POST
+
+// 新的提交投票函数，带用户名，发送所有选中歌曲一次 POST
 async function submitVote() {
+  const user = document.getElementById('usernameInput').value.trim();
+  if (!user) {
+    alert('请输入用户名');
+    return;
+  }
+
   const checked = Array.from(document.querySelectorAll('#songs input:checked')).map(i => i.value);
   if (checked.length === 0) {
     alert('请至少选择一首歌曲再提交');
     return;
   }
+
   const btn = document.getElementById('submitBtn');
   btn.disabled = true;
   btn.innerText = '提交中...';
+
   try {
-    // 并行发送 POST 请求（每首歌 +1）
-    await Promise.all(checked.map(song => {
-      return fetch(apiBase, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ song })
-      });
-    }));
+    // 发送 JSON 格式数据，user + songs 数组
+    const res = await fetch(apiBase, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user, songs: checked })
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || '提交失败');
+    }
     alert('投票成功！');
-    // 刷新数据
+    saveSelections();
     await loadSongs();
   } catch (err) {
+    alert('提交失败: ' + err.message);
     console.error(err);
-    alert('提交失败，请稍后重试');
   } finally {
     btn.disabled = false;
     btn.innerText = '提交投票';
   }
 }
- 
+
 function selectAll() {
   document.querySelectorAll('#songs input').forEach(i => i.checked = true);
+  saveSelections();
 }
 function clearAll() {
   document.querySelectorAll('#songs input').forEach(i => i.checked = false);
+  saveSelections();
 }
- 
+
 // HTML escape
 function escapeHtml(text) {
   if (!text && text !== 0) return '';
@@ -130,15 +179,16 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
- 
+
 // 事件绑定
 document.getElementById('submitBtn').addEventListener('click', submitVote);
 document.getElementById('selectAllBtn').addEventListener('click', selectAll);
 document.getElementById('clearBtn').addEventListener('click', clearAll);
- 
-// 自动刷新（每 10 秒）
+
+// 自动刷新
 loadSongs();
 //setInterval(loadSongs, 10000);
+
 </script>
 </body>
 </html>
